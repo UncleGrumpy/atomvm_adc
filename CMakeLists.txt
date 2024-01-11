@@ -17,18 +17,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
 #
-
-set(ATOMVM_ADC_COMPONENT_SRCS
-    "nifs/atomvm_adc.c"
-)
+if (IDF_VERSION_MAJOR EQUAL 4)
+    FATAL_ERROR("ESP-IDF versions prior to v 5.0 not supported")
+else()
+    set(ATOMVM_ADC_COMPONENT_SRCS
+        "nifs/atomvm_adc.c"
+    )
+    set(ADC_COMPONENTS "esp_adc")
+endif()
 
 idf_component_register(
     SRCS ${ATOMVM_ADC_COMPONENT_SRCS}
     INCLUDE_DIRS "nifs/include"
-    PRIV_REQUIRES "libatomvm" "avm_sys" "esp_adc_cal"
+    PRIV_REQUIRES "libatomvm" "avm_sys" ${ADC_COMPONENTS}
 )
 
 idf_build_set_property(
-    LINK_OPTIONS "-Wl,--whole-archive ${CMAKE_CURRENT_BINARY_DIR}/lib${COMPONENT_NAME}.a -Wl,--no-whole-archive"
+    LINK_OPTIONS "-Wl,--whole-archive;${CMAKE_CURRENT_BINARY_DIR}/lib${COMPONENT_NAME}.a;-Wl,--no-whole-archive"
     APPEND
 )

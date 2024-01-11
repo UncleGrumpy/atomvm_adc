@@ -1,5 +1,6 @@
 %%
-%% Copyright (c) 2020 dushin.net
+%% Copyright (c) 2020-2023 dushin.net
+%% Copyright (c) 2022-2024 Winford <winford@object.stream>
 %% All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,110 +18,144 @@
 %%-----------------------------------------------------------------------------
 %% @doc ADC support.
 %%
-%% Use this module to take ADC readings on an ESP32 device. ADC1 is enabled by 
-%% default and allows taking reading from pins 32-39. If ADC2 is also enabled
-%% pins 0, 2, 4, 12-15, and 25-27 may be used as long as WiFi is not required
-%% by the application. A solution should be available soon to allow for
-%% non-simultaneous use of WiFi and ADC2 channels.
+%% Use this module to take ADC readings. On an ESP32 device ADC unit1 allows
+%% taking reading from pins 32-39. ADC unit2 allows pins 0, 2, 4, 12-15, and
+%% 25-27 to be used as long as WiFi is not required by the application. The pins
+%% available for ADC use vary by device, check your datasheet for specific
+%% hardware support, and possible pin conflicts when WiFi is used simultaneously
+%% with ADC unit2.
 %% @end
 %%-----------------------------------------------------------------------------
 -module(adc).
 
--export([
-    start/1, start/2, stop/1, read/1, read/2
-]).
--export([config_width/2, config_channel_attenuation/2, take_reading/4, pin_is_adc2/1]). %% internal nif APIs
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+%% Low level resource based nif functions
+-export([ acquire/4, init/0, release_channel/1, deinit/1, sample/3 ]).
+%% Nif convenience functions
+-export([ acquire/2, sample/2 ]).
 
--behaviour(gen_server).
-
--type adc() :: pid().
--type adc_pin() ::  adc1_pin() | adc2_pin().
--type adc1_pin() :: 32..39.
--type adc2_pin() :: 0 | 2 | 4 | 12..15 | 25..27.
--type options() :: [option()].
+-type adc_rsrc() :: {'$adc', Resource::binary(), Ref::reference()}.
+-type adc_pin() ::  non_neg_integer().
+%% ADC enabled pins vary by chipset. Consult your datasheet.
 -type bit_width() :: bit_9 | bit_10 | bit_11 | bit_12 | bit_13 | bit_max.
--type attenuation() :: db_0 | db_2_5 | db_6 | db_11.
--type option() :: {bit_width, bit_width()} | {attenuation, attenuation()}.
-
+%% The default `bit_max' will select the highest value supported by the chipset. Note: `bit_11' is deprecated and
+%% will be removed in the future, behaves the same as `bit_12'.
+-type attenuation() :: db_0 | db_2_5 | db_6 | db_11 | db_12.
+%% The decibel gain determines the maximum save voltage to be measured. Consult the datasheet for your device to
+%% determine the voltage ranges supported by each gain setting.
 -type read_options() :: [read_option()].
--type read_option() :: raw | voltage | {samples, pos_integer()}.
+-type read_option() :: raw | voltage | {samples, non_neg_integer()}.
 
--type raw_value() :: 0..4095 | undefined.
+-type raw_value() :: 0..511|1023|2047|4095|8191 | undefined.
+%% The maximum analog value is determined by bit_width().
 -type voltage_reading() :: 0..3300 | undefined.
--type reading() :: {raw_value(), voltage_reading()}.
+%% The maximum safe millivolt value to measure is determined by attenuation().
+-type reading() :: {raw_value() | undefined, voltage_reading() | undefined}.
 
--define(DEFAULT_OPTIONS, [{bit_width, bit_12}, {attenuation, db_11}]).
+-define(ADC_RSRC, {'$adc', _Resource, _Ref}).
+
 -define(DEFAULT_SAMPLES, 64).
 -define(DEFAULT_READ_OPTIONS, [raw, voltage, {samples, ?DEFAULT_SAMPLES}]).
 
--record(state, {
-    pin :: adc_pin(),
-    bit_width :: bit_width(),
-    attenuation :: attenuation()
-}).
-
+%%-----------------------------------------------------------------------------
+%% @returns {ok, ADCUnit :: adc_rsrc()} | {error, Reason}
+%% @doc     Initialize the ADC unit hardware.
+%%
+%% The returned ADC unit resource must be supplied for all future ADC operations.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec init() -> {ok, ADCUnit :: adc_rsrc()} | {error, Reason::term()}.
+init() ->
+    throw(nif_error).
 
 %%-----------------------------------------------------------------------------
-%% @param   Pin     pin from which to read ADC
+%% @param   UnitResource returned from init/0
 %% @returns ok | {error, Reason}
-%% @equiv   start(Pin, [{bit_width, bit_12}, {attenuation, db_11}])
-%% @doc     Start an ADC.
+%% @doc     Nif to release the adc unit resource returned from init/0.
+%%
+%% Stop the ADC driver and free the unit resource. ADC channels should be released
+%% using `release_channel/1' to free each configured channel before freeing the
+%% unit resource.
 %% @end
 %%-----------------------------------------------------------------------------
--spec start(Pin::adc_pin()) -> {ok, adc()} | {error, Reason::term()}.
-start(Pin) ->
-    start(Pin, ?DEFAULT_OPTIONS).
+-spec deinit(UnitResource :: adc_rsrc()) -> ok | {error, Reason :: term()}.
+deinit(_UnitResource) ->
+    throw(nif_error).
 
 %%-----------------------------------------------------------------------------
-%% @param   Pin         pin from which to read ADC
-%% @param   Options     extra options
+%% @param   Pin         Pin to configure as ADC
+%% @param   UnitHandle  The unit handle returned from `init/0'
+%% @equiv   acquire(Pin, bit_max, db_11, UnitHandle)
+%% @returns {ok, Channel::adc_rsrc()} | {error, Reason}
+%% @doc     Initialize an ADC pin.
+-spec acquire(Pin :: adc_pin(), UnitHandle :: adc_rsrc()) -> {ok, Channel :: adc_rsrc()} | {error, Reason::term()}.
+acquire(_Pin, _UnitHandle) ->
+    throw(nif_error).
+
+%%-----------------------------------------------------------------------------
+%% @param   Pin         Pin to configure as ADC
+%% @param   BitWidth    Resolution in bit to measure
+%% @param   Attenuation Decibel gain for voltage range
+%% @param   UnitHandle  The unit handle returned from `init/0'
+%% @returns {ok, Channel::adc_rsrc()} | {error, Reason}
+%% @doc     Initialize an ADC pin.
+%%
+%% The BitWidth value `bit_max' may be used to automatically select the highest
+%% sample rate supported by your ESP chip-set.
+%%
+%% The Attenuation value can be used to adust the gain, and therefore safe
+%% measurement range on voltage the exact range of voltages supported by each
+%% db gain varies by chip, the chart below shows the general ranges supported,
+%% consult the data sheet for exact range of your model. The gain of `db_12' is
+%% only supported on some models, beginning with ESP-IDF v5.3 the setting of
+%% `db_11' is deprecated, but currently will fallback to the `db_12' option. This
+%% option will be removed after ESP-IDF v5.2 reaches end of support, and users are
+%% urged to update their application to use `db_12' for builds with v5.3 or later.
+%%
+%% %% <table>
+%%   <tr> <th>Attenuation</th><th>Min Millivolts</th><th>Max Millivolts</th></tr>
+%%   <tr> <td>`db_0'</td> <td>0-100</td> <td>750-950</td></tr>
+%%   <tr> <td>`db_2_5'</td> <td>0-100</td> <td>1050-1250</td></tr>
+%%   <tr> <td>`db_6'</td> <td>0-150</td> <td>1300-1750</td></tr>
+%%   <tr> <td>`bd_11' | `db_12'</td> <td>0-150</td> <td>2450-2500</td></tr>
+%% </table> 
+%%
+%% Use the returned `Channel' reference in subsequent ADC operations on
+%% the same pin.
+%% @end
+%%-----------------------------------------------------------------------------
+-spec acquire(Pin :: adc_pin(), BitWidth :: bit_width(), Attenuation :: attenuation(), UnitHandle :: adc_rsrc()) -> {ok, Channel :: adc_rsrc()} | {error, Reason::term()}.
+acquire(_Pin, _BitWidth, _Attenuation, _UnitHandle) ->
+    throw(nif_error).
+
+%%-----------------------------------------------------------------------------
+%% @param   ChannelResource of the pin returned from acquire/4
 %% @returns ok | {error, Reason}
-%% @doc     Start a ADC.
-%%
-%% Readings will be taken from the specified pin.  If the pin in not one of the
-%% following: 32..39 (and 0|2|4|12..15|25..27 with adc2 enabled), a badarg
-%% exception will be raised.
-%%
-%% Options may specify the bit width and attenuation. The attenuation value `bit_max'
-%% may be used to automatically select the highest sample rate supported by your
-%% ESP chip-set.
-%%
-%% Note. Unlike the esp-idf adc driver bit widths are used on a per pin basis,
-%% so pins on the same adc unit can use different widths if necessary.
-%%
-%% Use the returned reference in subsequent ADC operations.
-%% @end
-%%-----------------------------------------------------------------------------
--spec start(Pin::adc_pin(), Options::options()) -> {ok, adc()} | {error, Reason::term()}.
-start(Pin, Options) ->
-    gen_server:start(?MODULE, [Pin, Options], []).
-
-%%-----------------------------------------------------------------------------
-%% @returns ok
-%% @doc     Stop the specified ADC.
-%% @end
-%%-----------------------------------------------------------------------------
--spec stop(ADC::adc()) -> ok.
-stop(ADC) ->
-    gen_server:stop(ADC).
-
-%%-----------------------------------------------------------------------------
-%% @param   Pin         pin from which to read ADC
-%% @returns {ok, {RawValue, MilliVoltage}} | {error, Reason}
-%% @equiv   read(ADC, [raw, voltage, {samples, 64}])
-%% @doc     Take a reading from the pin associated with this ADC.
+%% @doc     Deinitialize the specified ADC channel.
 %%
 %% @end
 %%-----------------------------------------------------------------------------
--spec read(ADC::adc()) -> {ok, reading()} | {error, Reason::term()}.
-read(ADC) ->
-    read(ADC, ?DEFAULT_READ_OPTIONS).
+-spec release_channel(ChannelResource :: adc_rsrc()) -> ok | {error, Reason :: term()}.
+release_channel(_ChannelResource) ->
+    throw(nif_error).
 
 %%-----------------------------------------------------------------------------
-%% @param   Pin         pin from which to read ADC
+%% @param   ChannelResource of the pin returned from acquire/4
+%% @param   UnitResource of the pin returned from init/0
+%% @returns {ok, {RawValue, MilliVolts}} | {error, Reason}
+%% @equiv   sample(ChannelResource, UnitResource, [raw, voltage, {samples, 64}])
+%% @doc     Take a reading using default values from the pin associated with this ADC.
+%%
+%% @end
+%%-----------------------------------------------------------------------------
+-spec sample(ChannelResource :: adc_rsrc(), UnitResource :: adc_rsrc()) -> {ok, reading()} | {error, Reason :: term()}.
+sample(ChannelResource, UnitResource) ->
+    ?MODULE:sample(ChannelResource, UnitResource, ?DEFAULT_READ_OPTIONS).
+
+%%-----------------------------------------------------------------------------
+%% @param   ChannelResource of the pin returned from acquire/4
+%% @param   UnitResource of the pin returned from init/0
 %% @param   ReadOptions extra options
-%% @returns {ok, {RawValue, MilliVoltage}} | {error, Reason}
+%% @returns {ok, {RawValue, MilliVolts}} | {error, Reason}
 %% @doc     Take a reading from the pin associated with this ADC.
 %%
 %% The Options parameter may be used to specify the behavior of the read
@@ -130,9 +165,9 @@ read(ADC) ->
 %% in the first element of the returned tuple.  Otherwise, this element will be the
 %% atom `undefined'.
 %%
-%% If the ReadOptions contains the atom `voltage', then the millivoltage value will be returned
-%% in the second element of the returned tuple.  Otherwise, this element will be the
-%% atom `undefined'.
+%% If the ReadOptions contains the atom `voltage', then the voltage value will be returned
+%% in millivolts in the second element of the returned tuple.  Otherwise, this element will
+%% be the atom `undefined'.
 %%
 %% You may specify the number of samples to be taken and averaged over using the tuple
 %% `{samples, Samples::pos_integer()}'.
@@ -141,72 +176,6 @@ read(ADC) ->
 %% enabled and adc2 readings will no longer be possible.
 %% @end
 %%-----------------------------------------------------------------------------
--spec read(ADC::adc(), ReadOptions::read_options()) -> {ok, reading()} | {error, Reason::term()}.
-read(ADC, ReadOptions) ->
-    gen_server:call(ADC, {read, ReadOptions}).
-
-
-%%
-%% gen_server API
-%%
-
-%% @hidden
-init([Pin, Options]) ->
-    BitWidth = proplists:get_value(bit_width, Options, bit_12),
-    case adc:config_width(Pin, BitWidth) of
-        ok -> ok;
-        {error, R1} ->
-            throw({config_width, R1})
-    end,
-    Attenuation = proplists:get_value(attenuation, Options, db_11),
-    case adc:config_channel_attenuation(Pin, Attenuation) of
-        ok -> ok;
-        {error, R2} ->
-            throw({config_channel_attenuation, R2})
-    end,
-    {ok, #state{
-        pin=Pin, bit_width=BitWidth, attenuation=Attenuation
-    }}.
-
-%% @hidden
-handle_call({read, ReadOptions}, _From, State) ->
-    Reading = adc:take_reading(State#state.pin, ReadOptions, State#state.bit_width, State#state.attenuation),
-    {reply, {ok, Reading}, State};
-handle_call(Request, _From, State) ->
-    {reply, {error, {unknown_request, Request}}, State}.
-
-%% @hidden
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-%% @hidden
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-%% @hidden
-terminate(_Reason, _State) ->
-    ok.
-
-%% @hidden
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%
-%% internal nif API operations
-%%
-
-%% @hidden
-config_width(_Pin, _BitWidth) ->
-    throw(nif_error).
-
-%% @hidden
-config_channel_attenuation(_Pin, _Attenuation) ->
-    throw(nif_error).
-
-%% @hidden
-take_reading(_Pin, _ReadOptions, _BitWidth, _Attenuation) ->
-    throw(nif_error).
-
-%% @hidden
-pin_is_adc2(_Pin) ->
+-spec sample(ChannelResource :: adc_rsrc(), UnitResource :: adc_rsrc(), ReadOptions :: read_options()) -> {ok, Result :: reading()} | {error, Reason :: term()}.
+sample(_ChannelResource, _UnitResource, _ReadOptions) ->
     throw(nif_error).
