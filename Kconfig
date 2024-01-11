@@ -9,15 +9,26 @@ menu "ATOMVM_ADC Configuration"
     config AVM_ADC2_ENABLE
         depends on AVM_ADC_ENABLE
         bool "Enable ADC Unit 2"
-        default n
+        depends on SOC_ADC_PERIPH_NUM >= 2
+        default "y" if IDF_TARGET!="esp32"
         help
             This will allow using both ADC units.
 
-            ADC2 is used by the Wi-Fi driver. The application can only use ADC2 when the
-            wifi driver is not in use. If you need to use wifi in your AtomVM application
-            first use adc:wifi_acquire/0 to stop adc2 after the current conversion (if any)
-            before starting wifi. This will block any attempts to read adc2 until the
-            application uses adc:wifi_release/0 to stop the wifi driver and free the adc2
-            unit for other tasks.
+            ADC2 is used by the Wi-Fi driver. The ESP32 classic can only use ADC2 when the
+            wifi driver is not in use, all other models have an arbitrator peripheral that
+            allows the simultaneous use of ADC unit 2 with WiFi.
+
+    config ADC_ONESHOT_FORCE_USE_ADC2_ON_C3
+        depends on AVM_ADC2_ENABLE
+        depends on IDF_TARGET_ESP32C3
+        bool "Enable ADC Unit 2 for ESP32C3 devices"
+        default "y"
+        help
+            This will allow using both ADC units on esp32c3 devices.
+
+            The AtomVM ADC driver only uses one shot mode, so for the time being, it is safe to
+            leave this enabled by default. There is a known issue with DMA and continuous mode
+            on ESP32C3 chips covered in the device errata:
+            https://docs.espressif.com/projects/esp-chip-errata/en/latest/esp32c3/03-errata-description/index.html
 
 endmenu

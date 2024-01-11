@@ -1,5 +1,5 @@
 %%
-%% Copyright (c) 2020 dushin.net
+%% Copyright (c) 2023 <winford@object.stream>
 %% All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,21 +14,22 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%
--module(adc_example).
+-module(adc_nif_example).
 
 -export([start/0]).
 
 start() ->
     Pin = 34,
-    ok = adc:start(Pin),
-    loop(Pin).
+    {ok, Unit} = adc:init(),
+    {ok, Chan} = adc:acquire(Pin, Unit)
+    loop(Chan, Unit).
 
-loop(Pin) ->
-    case adc:read(Pin) of
+loop(Chan, Unit) ->
+    case adc:sample(Chan, Unit) of
         {ok, {Raw, MilliVolts}} ->
             io:format("Raw: ~p Voltage: ~pmV~n", [Raw, MilliVolts]);
         Error ->
             io:format("Error taking reading: ~p~n", [Error])
     end,
     timer:sleep(1000),
-    loop(Pin).
+    loop(Chan, Unit).
