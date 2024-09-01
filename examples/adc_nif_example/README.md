@@ -1,8 +1,8 @@
-# AtomVM ADC Example Program
+# AtomVM ADC Resource Based Nif Example Program
 
-The `adc_example` program illustrates use of the ADC API by reading the voltage signal on pin 34 once every second, and displaying the result on the console.
+The `adc_nif_example` program illustrates use of the ADC low-level nif API by reading the voltage signal on pin 34 once every second, and displaying the result on the console.
 
-> Note.  Building and flashing the `adc_example` program requires installation of the [`rebar3`](https://www.rebar3.org) Erlang build tool.
+> Note.  Building and flashing the `adc_nif_example` program requires installation of the [`rebar3`](https://www.rebar3.org) Erlang build tool.
 
 To run this example program, you will need to connect a power source to pin 34 on your ESP32 device, such as through a power supply (e.g., DPH5005), and provide it with a voltage between 0 and 1 volts.  Connect the negative lead on your power supply to the ground pin on your ESP32.
 
@@ -21,12 +21,12 @@ To run this example program, you will need to connect a power source to pin 34 o
 
 Build the example program and flash to your device:
 
-    shell$ cd .../AtomVM/src/platforms/esp32/components/atomvm_dht/examples/adc_example
-    shell$ rebar3 esp32_flash -p /dev/ttyUSB0
+    shell$ cd .../AtomVM/src/platforms/esp32/components/atomvm_adc/examples/adc_nif_example
+    shell$ rebar3 atomvm esp32_flash -p /dev/ttyUSB0
 
 > Note.  This build step makes use of the [`atomvm_rebar3_plugin`](https://github.com/atomvm/atomvm_rebar3_plugin).  See the `README.md` for information about parameters for setting the serial port and baud rate for your platform.
 
-Attach to the console usin gthe `monitor` Make target in the AtomVM ESP32 build:
+Attach to the console using the `monitor` Make target in the AtomVM ESP32 build:
 
     shell$ cd .../AtomVM/src/platform/esp32
     shell$ make monitor
@@ -38,7 +38,7 @@ Attach to the console usin gthe `monitor` Make target in the AtomVM ESP32 build:
     I (243) atomvm_adc: eFuse Two Point: NOT supported
     I (243) atomvm_adc: eFuse Vref: Supported
     Found AVM partition: size: 1048576, address: 0x110000
-    Starting: adc_example.beam...
+    Starting: adc_nif_example.beam...
     ---
     Raw: 6 Voltage: 76mV
     Raw: 0 Voltage: 75mV

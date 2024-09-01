@@ -1,5 +1,5 @@
 %%
-%% Copyright (c) 2020 dushin.net
+%% Copyright (c) 2024 UncleGrumpy <winford@object.stream>
 %% All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,21 +14,22 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%
--module(adc_example).
+-module(adc_nif_example).
 
 -export([start/0]).
 
 start() ->
     Pin = 34,
-    {ok, ADC} = adc:start(Pin),
-    loop(ADC).
+    {ok, Unit} = adc:init(),
+    {ok, Channel} = adc:acquire(Pin, bit_max, db_11, Unit),
+    loop(Unit, Channel).
 
-loop(ADC) ->
-    case adc:read(ADC) of
+loop(Unit, Channel) ->
+    case adc:sample(Unit, Channel) of
         {ok, {Raw, MilliVolts}} ->
             io:format("Raw: ~p Voltage: ~pmV~n", [Raw, MilliVolts]);
         Error ->
             io:format("Error taking reading: ~p~n", [Error])
     end,
     timer:sleep(1000),
-    loop(ADC).
+    loop(Unit, Channel).
